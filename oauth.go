@@ -571,7 +571,7 @@ func (c *Consumer) httpExecute(
 		bytes, _ := ioutil.ReadAll(resp.Body)
 
 		return resp, &OAuthError{
-			message:        "HTTP response is not 200/OK as expected",
+			message:        "HTTP response is not 200/OK as expected.",
 			httpStatus:     resp.Status,
 			httpStatusCode: resp.StatusCode,
 			responseBody:   string(bytes),
