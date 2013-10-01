@@ -36,7 +36,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -203,12 +202,12 @@ func (c *Consumer) GetRequestTokenAndUrl(callbackUrl string) (rtoken *RequestTok
 
 	resp, err := c.getBody(c.serviceProvider.RequestTokenUrl, params)
 	if err != nil {
-		return nil, "", errors.New("getBody: " + err.Error())
+		return nil, "", newSimpleOauthError("getBody: " + err.Error())
 	}
 
 	token, secret, err := parseTokenAndSecret(*resp)
 	if err != nil {
-		return nil, "", errors.New("parseTokenAndSecret: " + err.Error())
+		return nil, "", newSimpleOauthError("parseTokenAndSecret: " + err.Error())
 	}
 
 	loginParams := make(url.Values)
@@ -427,11 +426,11 @@ func parseTokenAndSecret(data string) (string, string, error) {
 	}
 
 	if len(parts[TOKEN_PARAM]) < 1 {
-		return "", "", errors.New("Missing " + TOKEN_PARAM + " in response. " +
+		return "", "", newSimpleOauthError("Missing " + TOKEN_PARAM + " in response. " +
 			"Full response body: '" + data + "'")
 	}
 	if len(parts[TOKEN_SECRET_PARAM]) < 1 {
-		return "", "", errors.New("Missing " + TOKEN_SECRET_PARAM + " in response." +
+		return "", "", newSimpleOauthError("Missing " + TOKEN_SECRET_PARAM + " in response." +
 			"Full response body: '" + data + "'")
 	}
 
@@ -511,12 +510,12 @@ func (c *Consumer) requestString(method string, url string, params *OrderedParam
 func (c *Consumer) getBody(url string, oauthParams *OrderedParams) (*string, error) {
 	resp, err := c.httpExecute("GET", url, "", "", oauthParams)
 	if err != nil {
-		return nil, errors.New("httpExecute: " + err.Error())
+		return nil, newSimpleOauthError("httpExecute: " + err.Error())
 	}
 	bodyBytes, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		return nil, errors.New("ReadAll: " + err.Error())
+		return nil, newSimpleOauthError("ReadAll: " + err.Error())
 	}
 	bodyStr := string(bodyBytes)
 	if c.debug {
@@ -531,7 +530,7 @@ func (c *Consumer) httpExecute(
 	// Create base request.
 	req, err := http.NewRequest(method, urlStr, strings.NewReader(body))
 	if err != nil {
-		return nil, errors.New("NewRequest failed: " + err.Error())
+		return nil, newSimpleOauthError("NewRequest failed: " + err.Error())
 	}
 
 	// Set auth header.
@@ -557,7 +556,7 @@ func (c *Consumer) httpExecute(
 	}
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
-		return nil, errors.New("Do: " + err.Error())
+		return nil, newSimpleOauthError("Do: " + err.Error())
 	}
 
 	debugHeader := ""
@@ -571,11 +570,13 @@ func (c *Consumer) httpExecute(
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		bytes, _ := ioutil.ReadAll(resp.Body)
 
-		return resp, errors.New("HTTP response is not 200/OK as expected. Actual response: \n" +
-			"\tResponse Status: '" + resp.Status + "'\n" +
-			"\tResponse Code: " + strconv.Itoa(resp.StatusCode) + "\n" +
-			"\tResponse Body: " + string(bytes) + "\n" +
-			"\tRequst Headers: " + debugHeader)
+		return resp, &OAuthError{
+			message:        "HTTP response is not 200/OK as expected",
+			httpStatus:     resp.Status,
+			httpStatusCode: resp.StatusCode,
+			responseBody:   string(bytes),
+			debugHeader:    debugHeader,
+		}
 	}
 	return resp, err
 }
@@ -632,4 +633,38 @@ func (o *OrderedParams) Clone() *OrderedParams {
 		clone.AddUnescaped(key, o.Get(key))
 	}
 	return clone
+}
+
+//
+// ERROR
+//
+
+type OAuthError struct {
+	httpStatus     string
+	httpStatusCode int
+	responseBody   string
+	message        string
+	debugHeader    string
+}
+
+func newSimpleOauthError(message string) error {
+	return &OAuthError{
+		message: message,
+	}
+}
+
+func (e *OAuthError) Error() string {
+	return e.message
+}
+
+func (e *OAuthError) HttpStatus() string {
+	return e.httpStatus
+}
+
+func (e *OAuthError) HttpStatusCode() int {
+	return e.httpStatusCode
+}
+
+func (e *OAuthError) ResponseBody() string {
+	return e.responseBody
 }
